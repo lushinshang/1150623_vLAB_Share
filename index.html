@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vlab 直播分享簡報播放器</title>
+  
+  <!-- 載入現代優雅字型 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Noto+Sans+TC:wght@300;400;700&display=swap" rel="stylesheet">
+  
+  <style>
+    /* CSS 美學設計 tokens */
+    :root {
+      --bg-color: #080c14;
+      --bg-gradient: radial-gradient(circle at 50% 50%, #111a2e 0%, #080c14 100%);
+      --accent-color: #3b82f6;
+      --accent-glow: rgba(59, 130, 246, 0.4);
+      --glass-bg: rgba(255, 255, 255, 0.05);
+      --glass-border: rgba(255, 255, 255, 0.08);
+      --glass-hover: rgba(255, 255, 255, 0.1);
+      --text-main: #f8fafc;
+      --text-sub: #94a3b8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none; /* 防止滑動或點擊時選取到文字與圖片 */
+    }
+
+    body {
+      background: var(--bg-color);
+      background-image: var(--bg-gradient);
+      color: var(--text-main);
+      font-family: 'Outfit', 'Noto Sans TC', sans-serif;
+      min-height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* 播放器主容器 */
+    .player-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    /* 簡報顯示區域 (視窗) */
+    .slide-viewport {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* 單張 Slide 容器 */
+    .slide-wrapper {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      visibility: hidden;
+      transform: scale(0.98) translateX(20px);
+      transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), 
+                  opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), 
+                  visibility 0.5s;
+      will-change: transform, opacity;
+      padding: 40px;
+    }
+
+    /* 當前播放的 Slide 樣式 */
+    .slide-wrapper.active {
+      opacity: 1;
+      visibility: visible;
+      transform: scale(1) translateX(0);
+    }
+
+    /* 上一張 Slide 退場樣式 (向左滑開) */
+    .slide-wrapper.prev-exit {
+      opacity: 0;
+      visibility: hidden;
+      transform: scale(0.98) translateX(-20px);
+    }
+
+    /* 投影片圖片自適應 */
+    .slide-img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      border-radius: 12px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.03);
+    }
+
+    /* 投影片影片/內嵌框架自適應 */
+    .slide-video, .slide-iframe {
+      width: 100%;
+      height: 100%;
+      max-width: 90%;
+      max-height: 85%;
+      border-radius: 12px;
+      border: none;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+
+    /* 懸浮控制元件 - 毛玻璃面板 */
+    .glass-badge {
+      background: var(--glass-bg);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--glass-border);
+      border-radius: 30px;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 20px;
+      font-size: 14px;
+      font-weight: 600;
+      box-shadow: 0 4px 30px rgba(0, 0, 0, 0.2);
+      transition: all 0.3s ease;
+      z-index: 10;
+    }
+
+    /* 頂部頁碼指示器 */
+    .page-indicator-badge {
+      position: absolute;
+      top: 24px;
+      left: 24px;
+      font-family: 'Outfit', sans-serif;
+      letter-spacing: 1px;
+    }
+    
+    .page-indicator-badge .current-page {
+      color: var(--accent-color);
+      font-size: 18px;
+      font-weight: 800;
+      text-shadow: 0 0 10px var(--accent-glow);
+    }
+
+    .page-indicator-badge .total-pages {
+      color: var(--text-sub);
+    }
+
+    /* 懸浮導覽按鈕 (左右兩側) */
+    .nav-btn {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      background: var(--glass-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--glass-border);
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      opacity: 0; /* 預設隱藏，滑鼠移入時優雅顯現 */
+      transition: opacity 0.3s ease, background 0.2s, border 0.2s, transform 0.2s ease-out;
+      z-index: 10;
+    }
+
+    .player-container:hover .nav-btn {
+      opacity: 0.6;
+    }
+
+    .nav-btn:hover {
+      opacity: 1 !important;
+      background: var(--glass-hover);
+      border-color: var(--accent-color);
+      box-shadow: 0 0 15px var(--accent-glow);
+    }
+
+    .nav-btn:active {
+      transform: translateY(-50%) scale(0.95);
+    }
+
+    .nav-btn.prev-btn {
+      left: 30px;
+    }
+
+    .nav-btn.next-btn {
+      right: 30px;
+    }
+
+    .nav-btn svg {
+      width: 24px;
+      height: 24px;
+      fill: currentColor;
+    }
+
+    /* 底部控制列與進度導覽 */
+    .bottom-bar {
+      position: absolute;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: auto;
+      max-width: 90%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      z-index: 10;
+    }
+
+    /* 水平流暢進度條 */
+    .progress-timeline {
+      width: 320px;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 2px;
+      overflow: hidden;
+      position: relative;
+      cursor: pointer;
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--accent-color);
+      border-radius: 2px;
+      box-shadow: 0 0 8px var(--accent-color);
+      transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    /* 分頁小圓點導覽列 */
+    .dots-container {
+      display: flex;
+      gap: 8px;
+      padding: 6px 16px;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.2);
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .dot.active {
+      background: var(--accent-color);
+      box-shadow: 0 0 8px var(--accent-color);
+      transform: scale(1.3);
+    }
+
+    .dot:hover {
+      background: rgba(255, 255, 255, 0.5);
+      transform: scale(1.2);
+    }
+
+    /* 右下角全螢幕按鈕 */
+    .fullscreen-btn {
+      position: absolute;
+      bottom: 24px;
+      right: 24px;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: var(--glass-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--glass-border);
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 4px 30px rgba(0, 0, 0, 0.2);
+      transition: all 0.3s ease;
+      z-index: 10;
+    }
+
+    .fullscreen-btn:hover {
+      background: var(--glass-hover);
+      border-color: var(--accent-color);
+      box-shadow: 0 0 12px var(--accent-glow);
+      transform: scale(1.05);
+    }
+
+    .fullscreen-btn svg {
+      width: 18px;
+      height: 18px;
+      fill: currentColor;
+    }
+
+    /* 頂部右側快捷提示列 */
+    .shortcuts-badge {
+      position: absolute;
+      top: 24px;
+      right: 24px;
+      font-size: 12px;
+      color: var(--text-sub);
+      background: rgba(0, 0, 0, 0.3);
+    }
+
+    /* 行動裝置支援：縮小 UI 邊距 */
+    @media (max-width: 768px) {
+      .nav-btn {
+        display: none; /* 手機上依靠手勢滑動，隱藏左右按鈕 */
+      }
+      .slide-wrapper {
+        padding: 16px;
+      }
+      .page-indicator-badge {
+        top: 16px;
+        left: 16px;
+      }
+      .shortcuts-badge {
+        display: none;
+      }
+      .progress-timeline {
+        width: 200px;
+      }
+    }
+
+    /* HTML 投影片容器 */
+    .slide-html-container {
+      width: 100%;
+      height: 100%;
+      max-width: 90%;
+      max-height: 85%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      padding: 20px;
+      z-index: 2;
+    }
+
+    /* 標題 */
+    .slide-html-title {
+      font-size: 32px;
+      font-weight: 800;
+      color: var(--text-main);
+      text-shadow: 0 0 15px rgba(255, 255, 255, 0.1);
+      margin-bottom: 8px;
+      letter-spacing: 1px;
+    }
+
+    /* 限制卡片連結被拖曳或選取以維護播放器手勢體驗 */
+    .links-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 24px;
+      width: 100%;
+      max-width: 1000px;
+    }
+
+    /* 連結卡片樣式 */
+    .link-card {
+      background: rgba(255, 255, 255, 0.03);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 16px;
+      transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+      text-decoration: none;
+      color: inherit;
+      box-shadow: 0 10px 30px -15px rgba(0, 0, 0, 0.3);
+      cursor: pointer;
+    }
+
+    .link-card:hover {
+      transform: translateY(-5px);
+      background: rgba(255, 255, 255, 0.07);
+      border-color: #ffb900; /* Google Slides 經典金黃色 */
+      box-shadow: 0 15px 30px -10px rgba(255, 185, 0, 0.15), 
+                  0 0 20px rgba(255, 185, 0, 0.1);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .card-icon {
+      width: 40px;
+      height: 40px;
+      background: rgba(255, 185, 0, 0.1);
+      color: #ffb900;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .card-icon svg {
+      width: 22px;
+      height: 22px;
+      fill: currentColor;
+    }
+
+    .card-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-main);
+      line-height: 1.4;
+      text-align: left;
+    }
+
+    .card-desc {
+      font-size: 14px;
+      color: var(--text-sub);
+      line-height: 1.6;
+      flex-grow: 1;
+      text-align: left;
+      margin-top: 10px;
+    }
+
+    .card-action {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #ffb900;
+      align-self: flex-start;
+      margin-top: 8px;
+      transition: gap 0.2s ease;
+    }
+
+    .link-card:hover .card-action {
+      gap: 10px;
+    }
+
+    /* 手機版 RWD */
+    @media (max-width: 768px) {
+      .links-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+        max-height: 60vh;
+        overflow-y: auto;
+        padding-right: 4px;
+      }
+      .slide-html-title {
+        font-size: 20px;
+      }
+      .link-card {
+        padding: 16px;
+      }
+      .card-title {
+        font-size: 16px;
+      }
+      .card-desc {
+        font-size: 13px;
+      }
+    }
+
+    /* 結束頁面樣式 */
+    .ending-title {
+      font-size: 64px;
+      font-weight: 800;
+      background: linear-gradient(135deg, #3b82f6 0%, #22c55e 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 4px;
+      text-shadow: 0 10px 40px rgba(59, 130, 246, 0.2);
+      animation: titleGlow 4s ease-in-out infinite alternate;
+    }
+
+    .ending-subtitle {
+      font-size: 20px;
+      color: var(--text-sub);
+      font-weight: 300;
+      letter-spacing: 4px;
+      margin-bottom: 24px;
+    }
+
+    .ending-card {
+      background: rgba(255, 255, 255, 0.02);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--glass-border);
+      border-radius: 20px;
+      padding: 32px 48px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.4);
+    }
+
+    .ending-text {
+      font-size: 15px;
+      color: var(--text-sub);
+      letter-spacing: 1px;
+    }
+
+    .restart-btn {
+      background: rgba(59, 130, 246, 0.1);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      color: var(--text-main);
+      padding: 12px 28px;
+      border-radius: 30px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      margin-top: 8px;
+    }
+
+    .restart-btn svg {
+      width: 16px;
+      height: 16px;
+      fill: currentColor;
+      transition: transform 0.5s ease;
+    }
+
+    .restart-btn:hover {
+      background: var(--accent-color);
+      border-color: var(--accent-color);
+      box-shadow: 0 0 15px var(--accent-glow);
+    }
+
+    .restart-btn:hover svg {
+      transform: rotate(-360deg);
+    }
+
+    .restart-btn:active {
+      transform: scale(0.95);
+    }
+
+    @keyframes titleGlow {
+      from {
+        text-shadow: 0 0 20px rgba(59, 130, 246, 0.1);
+      }
+      to {
+        text-shadow: 0 0 40px rgba(34, 197, 94, 0.3);
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="player-container" id="player">
+    
+    <!-- 頂部頁碼指示器 (當前頁數 / 總頁數) -->
+    <div class="glass-badge page-indicator-badge">
+      <span class="current-page" id="currentPage">01</span>
+      <span class="total-pages" id="totalPages">/ 24</span>
+    </div>
+
+    <!-- 鍵盤快捷鍵懸浮提示 -->
+    <div class="glass-badge shortcuts-badge">
+      鍵盤 ⇆ 或 空白鍵 控制
+    </div>
+
+    <!-- 投影片視窗區域 -->
+    <div class="slide-viewport" id="slideViewport">
+      <!-- JavaScript 會在此動態生成 Slides 內容 -->
+    </div>
+
+    <!-- 左右導覽按鈕 -->
+    <button class="nav-btn prev-btn" id="prevBtn" aria-label="上一頁">
+      <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+    </button>
+    <button class="nav-btn next-btn" id="nextBtn" aria-label="下一頁">
+      <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+    </button>
+
+    <!-- 底部控制列 (進度條與小圓點) -->
+    <div class="bottom-bar">
+      <!-- 點擊可跳轉的進度條 -->
+      <div class="progress-timeline" id="progressTimeline" title="跳轉進度">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+      <!-- 分頁圓點 -->
+      <div class="glass-badge dots-container" id="dotsContainer"></div>
+    </div>
+
+    <!-- 全螢幕切換按鈕 -->
+    <button class="fullscreen-btn" id="fullscreenBtn" aria-label="切換全螢幕">
+      <svg viewBox="0 0 24 24" id="fullscreenIcon">
+        <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+      </svg>
+    </button>
+
+  </div>
+
+  <script>
+    // ==========================================
+    // 簡報內容陣列 (極佳的架構解耦)
+    // 未來若要插頁、更換順序，或插入影片，只需直接修改此數組即可。
+    // ==========================================
+    const slides = [
+      { type: 'image', src: 'image/1.png', alt: 'Slide 1' },
+      { type: 'image', src: 'image/2.png', alt: 'Slide 2' },
+      { type: 'image', src: 'image/3.png', alt: 'Slide 3' },
+      { type: 'image', src: 'image/4.png', alt: 'Slide 4' },
+      { type: 'image', src: 'image/5.png', alt: 'Slide 5' },
+      { type: 'image', src: 'image/6.png', alt: 'Slide 6' },
+      { type: 'image', src: 'image/7.png', alt: 'Slide 7' },
+      { type: 'image', src: 'image/8.png', alt: 'Slide 8' },
+      { type: 'image', src: 'image/9.png', alt: 'Slide 9' },
+      { type: 'image', src: 'image/10.png', alt: 'Slide 10' },
+      { type: 'image', src: 'image/11.png', alt: 'Slide 11' },
+      { type: 'image', src: 'image/12.png', alt: 'Slide 12' },
+      { type: 'image', src: 'image/13.png', alt: 'Slide 13' },
+      { type: 'image', src: 'image/14.png', alt: 'Slide 14' },
+      { type: 'image', src: 'image/15.png', alt: 'Slide 15' },
+      { type: 'image', src: 'image/16.png', alt: 'Slide 16' },
+      { type: 'image', src: 'image/17.png', alt: 'Slide 17' },
+      { type: 'image', src: 'image/18.png', alt: 'Slide 18' },
+      { type: 'image', src: 'image/19.png', alt: 'Slide 19' },
+      { type: 'video', src: 'Video/1150623_BuildPersona.mp4', alt: 'Slide 20 - Build Persona 實作' },
+      { type: 'video', src: 'Video/colab實作-YT逐字稿下載_3x.mp4', alt: 'Slide 21 - Colab實作 YT逐字稿下載' },
+      { type: 'video', src: 'Video/colab實作-逐字稿篩選資料_3x.mp4', alt: 'Slide 22 - Colab實作 逐字稿篩選資料' },
+      {
+        type: 'html',
+        content: `
+          <h2 class="slide-html-title">💡 Google Slides 簡報分享與連結</h2>
+          <div class="links-grid">
+            
+            <a href="https://docs.google.com/presentation/d/1JZpbek2HHfVcI5jy0MxMeuWVU6fmuAp4HbrQzOHp6MQ/edit?usp=sharing" target="_blank" class="link-card">
+              <div>
+                <div class="card-header">
+                  <div class="card-icon">
+                    <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-3 12H8v-2h8v2zm0-4H8V9h8v2z"/></svg>
+                  </div>
+                  <h3 class="card-title">iPAS AI速記</h3>
+                </div>
+                <p class="card-desc">整理了 iPAS AI 考試的核心概念與速記精華，適合快速複習與記憶核心考點。</p>
+              </div>
+              <div class="card-action">開啟簡報 ↗</div>
+            </a>
+
+            <a href="https://docs.google.com/presentation/d/1mVkxftM_HSQU1z0Is4Og8iH8ZoEfpA-Hh_HMXS5c3Wg/edit?usp=sharing" target="_blank" class="link-card">
+              <div>
+                <div class="card-header">
+                  <div class="card-icon">
+                    <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-3 12H8v-2h8v2zm0-4H8V9h8v2z"/></svg>
+                  </div>
+                  <h3 class="card-title">AI 應用規劃師能力鑑定評鑑內容範圍整理</h3>
+                </div>
+                <p class="card-desc">詳盡解析 AI 應用規劃師的學科與評鑑科目範圍，涵蓋機器學習、資料科學與專案實作指南。</p>
+              </div>
+              <div class="card-action">開啟簡報 ↗</div>
+            </a>
+
+            <a href="https://docs.google.com/presentation/d/1-XyJCrBHqaNwGCBt79iGEQ6jSB88dHnwVW6DTYWkgTg/edit?usp=sharing" target="_blank" class="link-card">
+              <div>
+                <div class="card-header">
+                  <div class="card-icon">
+                    <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-3 12H8v-2h8v2zm0-4H8V9h8v2z"/></svg>
+                  </div>
+                  <h3 class="card-title">AI相關名詞整理</h3>
+                </div>
+                <p class="card-desc">彙整 AI、機器學習與生成式 AI 開發中的核心專有名詞，提供簡明對照，幫助建立技術術語標準。</p>
+              </div>
+              <div class="card-action">開啟簡報 ↗</div>
+            </a>
+
+            <a href="https://docs.google.com/presentation/d/1yh3mlbQsTCz7wPaDS8pPg4VxTGFZJ5dI0Ym3vbbqcLk/edit?usp=sharing" target="_blank" class="link-card">
+              <div>
+                <div class="card-header">
+                  <div class="card-icon">
+                    <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-3 12H8v-2h8v2zm0-4H8V9h8v2z"/></svg>
+                  </div>
+                  <h3 class="card-title">AI考試陷阱總整理 TOP50</h3>
+                </div>
+                <p class="card-desc">精選 50 個最常見的 AI 能力鑑定考試陷阱與易錯題型分析，幫助考生避開常見認知盲區，提高答題正確率。</p>
+              </div>
+              <div class="card-action">開啟簡報 ↗</div>
+            </a>
+
+          </div>
+        `,
+        alt: 'Slide 23 - Google Slides 簡報分享與連結'
+      },
+      {
+        type: 'html',
+        content: `
+          <h2 class="slide-html-title ending-title">Thank You</h2>
+          <div class="ending-subtitle">感謝您的聆聽與參與</div>
+          <div class="ending-card">
+            <p class="ending-text">Vlab 分享系列簡報已播放完畢</p>
+            <button class="restart-btn" onclick="goToSlide(0)">
+              <svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>
+              重新播放簡報
+            </button>
+          </div>
+        `,
+        alt: 'Slide 24 - 結束頁面'
+      }
+    ];
+
+    let currentIndex = 0;
+    const totalSlides = slides.length;
+
+    // DOM 節點獲取
+    const viewport = document.getElementById('slideViewport');
+    const currentPageLabel = document.getElementById('currentPage');
+    const totalPagesLabel = document.getElementById('totalPages');
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
+    const progressTimeline = document.getElementById('progressTimeline');
+    const progressFill = document.getElementById('progressFill');
+    const dotsContainer = document.getElementById('dotsContainer');
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
+    const fullscreenIcon = document.getElementById('fullscreenIcon');
+    const player = document.getElementById('player');
+
+    // 1. 初始化 DOM 渲染
+    function initSlides() {
+      totalPagesLabel.textContent = `/ ${String(totalSlides).padStart(2, '0')}`;
+      
+      slides.forEach((slide, idx) => {
+        const slideWrapper = document.createElement('div');
+        slideWrapper.className = 'slide-wrapper';
+        if (idx === 0) slideWrapper.classList.add('active');
+
+        // 依據 slides 定義的 type 類型進行多態渲染
+        if (slide.type === 'image') {
+          const img = document.createElement('img');
+          img.className = 'slide-img';
+          img.alt = slide.alt;
+          // 第一張和第二張圖片直接載入，其他延遲載入以防阻礙首網渲染
+          if (idx <= 1) {
+            img.src = slide.src;
+          } else {
+            img.dataset.src = slide.src; 
+          }
+          slideWrapper.appendChild(img);
+        } 
+        else if (slide.type === 'video') {
+          const video = document.createElement('video');
+          video.className = 'slide-video';
+          video.controls = true;
+          video.preload = 'metadata';
+          if (slide.poster) video.poster = slide.poster;
+          const source = document.createElement('source');
+          source.src = slide.src;
+          video.appendChild(source);
+          slideWrapper.appendChild(video);
+        }
+        else if (slide.type === 'iframe') {
+          const iframe = document.createElement('iframe');
+          iframe.className = 'slide-iframe';
+          iframe.src = slide.src;
+          iframe.allow = "autoplay; fullscreen; picture-in-picture";
+          slideWrapper.appendChild(iframe);
+        }
+        else if (slide.type === 'html') {
+          const htmlContainer = document.createElement('div');
+          htmlContainer.className = 'slide-html-container';
+          htmlContainer.innerHTML = slide.content;
+          slideWrapper.appendChild(htmlContainer);
+        }
+
+        viewport.appendChild(slideWrapper);
+
+        // 渲染導覽小圓點
+        const dot = document.createElement('div');
+        dot.className = 'dot';
+        if (idx === 0) dot.classList.add('active');
+        dot.addEventListener('click', () => goToSlide(idx));
+        dotsContainer.appendChild(dot);
+      });
+
+      updateProgress();
+    }
+
+    // 2. 核心切換邏輯 (絲滑動效控制)
+    const slideElements = [];
+    
+    function goToSlide(index) {
+      if (index < 0 || index >= totalSlides || index === currentIndex) return;
+
+      const wrappers = document.querySelectorAll('.slide-wrapper');
+      const dots = document.querySelectorAll('.dot');
+      
+      const currentWrapper = wrappers[currentIndex];
+      const targetWrapper = wrappers[index];
+
+      // 預加載目標頁面以及前後頁面的圖片 (雙向緩衝預載)
+      preloadImage(index);
+      preloadImage(index + 1);
+      preloadImage(index - 1);
+
+      // 控制前一張 Slide 的退場動畫 (往左滑走)
+      if (index > currentIndex) {
+        currentWrapper.classList.add('prev-exit');
+      } else {
+        currentWrapper.classList.remove('prev-exit');
+      }
+      currentWrapper.classList.remove('active');
+
+      // 控制新 Slide 的進場
+      targetWrapper.classList.remove('prev-exit');
+      targetWrapper.classList.add('active');
+
+      // 如果有影片，切換時自動暫停前一張影片，避免背景雜音
+      const prevVideo = currentWrapper.querySelector('video');
+      if (prevVideo) prevVideo.pause();
+
+      // 更新狀態
+      dots[currentIndex].classList.remove('active');
+      dots[index].classList.add('active');
+      currentIndex = index;
+
+      // 更新數字頁碼標示 (高視覺對齊)
+      currentPageLabel.textContent = String(currentIndex + 1).padStart(2, '0');
+
+      updateProgress();
+    }
+
+    // 3. 圖片自動預加載機制 (Preloading)
+    function preloadImage(idx) {
+      if (idx < 0 || idx >= totalSlides) return;
+      const wrappers = document.querySelectorAll('.slide-wrapper');
+      const img = wrappers[idx].querySelector('img');
+      if (img && img.dataset.src) {
+        img.src = img.dataset.src;
+        img.removeAttribute('dataset-src');
+      }
+    }
+
+    // 4. 更新進度條長度
+    function updateProgress() {
+      const percent = ((currentIndex + 1) / totalSlides) * 100;
+      progressFill.style.width = `${percent}%`;
+    }
+
+    // 下一頁 / 上一頁 接口
+    function nextSlide() {
+      if (currentIndex < totalSlides - 1) {
+        goToSlide(currentIndex + 1);
+      }
+    }
+
+    function prevSlide() {
+      if (currentIndex > 0) {
+        goToSlide(currentIndex - 1);
+      }
+    }
+
+    // 5. 事件監聽設定
+    prevBtn.addEventListener('click', prevSlide);
+    nextBtn.addEventListener('click', nextSlide);
+
+    // 點擊進度條跳轉 (Timeline Clicking)
+    progressTimeline.addEventListener('click', (e) => {
+      const rect = progressTimeline.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const percentage = clickX / rect.width;
+      const targetIndex = Math.floor(percentage * totalSlides);
+      goToSlide(Math.min(Math.max(targetIndex, 0), totalSlides - 1));
+    });
+
+    // 鍵盤操控 (Keyboard Navigation)
+    document.addEventListener('keydown', (e) => {
+      // 若使用者焦點在 input, textarea 或 video 元素上，則不攔截其預設按鍵行為（例如影片快轉、播放/暫停）
+      const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+      if (activeTag === 'video' || activeTag === 'input' || activeTag === 'textarea') {
+        return;
+      }
+
+      if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'Enter') {
+        e.preventDefault();
+        nextSlide();
+      } else if (e.key === 'ArrowLeft' || e.key === 'Backspace') {
+        e.preventDefault();
+        prevSlide();
+      }
+    });
+
+    // 行動裝置滑動手勢偵測 (Touch Swipe Support)
+    let touchStartX = 0;
+    let touchEndX = 0;
+
+    viewport.addEventListener('touchstart', (e) => {
+      touchStartX = e.changedTouches[0].screenX;
+    }, { passive: true });
+
+    viewport.addEventListener('touchend', (e) => {
+      touchEndX = e.changedTouches[0].screenX;
+      handleSwipe();
+    }, { passive: true });
+
+    function handleSwipe() {
+      const threshold = 50; // 滑動靈敏度閥值
+      if (touchStartX - touchEndX > threshold) {
+        nextSlide(); // 向左滑，下一張
+      } else if (touchEndX - touchStartX > threshold) {
+        prevSlide(); // 向右滑，上一張
+      }
+    }
+
+    // 6. 專業級全螢幕控制切換 (HTML5 Fullscreen API)
+    fullscreenBtn.addEventListener('click', toggleFullscreen);
+
+    function toggleFullscreen() {
+      if (!document.fullscreenElement) {
+        player.requestFullscreen().catch(err => {
+          console.error(`全螢幕切換失敗: ${err.message}`);
+        });
+      } else {
+        document.exitFullscreen();
+      }
+    }
+
+    // 監聽全螢幕變化事件，更新按鈕視覺 Icon
+    document.addEventListener('fullscreenchange', () => {
+      if (document.fullscreenElement) {
+        // 全螢幕狀態：切換為「縮小」Icon
+        fullscreenIcon.innerHTML = `<path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/>`;
+      } else {
+        // 正常狀態：切換為「放大」Icon
+        fullscreenIcon.innerHTML = `<path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>`;
+      }
+    });
+
+    // 7. 啟動加載
+    window.addEventListener('DOMContentLoaded', initSlides);
+  </script>
+</body>
+</html>
